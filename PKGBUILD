@@ -80,6 +80,7 @@ package_ghostty-git() {
     install -Dm0644 -t "${pkgdir}/usr/share/licenses/$pkgname/" LICENSE
     rm -r "$pkgdir"/usr/share/terminfo
     rm -r "$pkgdir"/usr/share/ghostty/shell-integration
+    rm -r "$pkgdir"/usr/share/nautilus-python
 }
 
 package_ghostty-shell-integration-git() {
@@ -100,6 +101,8 @@ package_ghostty-terminfo-git() {
     cd "$_pkgbase"
     mkdir -p "$pkgdir/usr/share/terminfo"
     cp -r build/usr/share/terminfo/* "$pkgdir/usr/share/terminfo/"
+    rm -f "$pkgdir/usr/share/terminfo/g/ghostty"
+    rmdir "$pkgdir/usr/share/terminfo/g" 2>/dev/null || true
 }
 
 package_ghostty-nautilus-git() {
