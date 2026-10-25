@@ -39,6 +39,10 @@ jobs:
               su builder -c "
                 git clone https://aur.archlinux.org/ghostty-git.git /tmp/ghostty-git
                 cd /tmp/ghostty-git
+
+                # Allow zig to fetch missing transitive dependencies online
+                sed -i \"/--system/d\" PKGBUILD
+
                 makepkg -s --noconfirm
                 cp *.pkg.tar.zst /dist/
                 cd /dist
