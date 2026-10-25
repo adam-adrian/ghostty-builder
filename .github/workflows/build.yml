@@ -1,0 +1,63 @@
+name: Build Ghostty
+
+on:
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Publish as GitHub Release'
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    name: Build Arch Package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Ghostty in Arch Linux container
+        run: |
+          mkdir -p dist
+          chmod 777 dist
+
+          docker run --rm \
+            -v "$PWD/dist:/dist" \
+            archlinux:base-devel bash -c '
+              set -euo pipefail
+
+              # Update keyring and install prerequisites
+              pacman -Sy --noconfirm archlinux-keyring
+              pacman -Su --noconfirm --needed git sudo
+
+              # Setup unprivileged user for makepkg
+              useradd -m -s /bin/bash builder
+              echo "builder ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/builder
+              chmod 0440 /etc/sudoers.d/builder
+
+              # Clone AUR package and build
+              su builder -c "
+                git clone https://aur.archlinux.org/ghostty-git.git /tmp/ghostty-git
+                cd /tmp/ghostty-git
+                makepkg -s --noconfirm
+                cp *.pkg.tar.zst /dist/
+              "
+            '
+
+      - name: Upload Package Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghostty-packages
+          path: dist/*.pkg.tar.zst
+          retention-days: 14
+
+      - name: Create Release
+        if: ${{ inputs.create_release }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: tip-${{ github.run_id }}
+          name: "Ghostty Nightly (Build ${{ github.run_id }})"
+          files: dist/*.pkg.tar.zst
