@@ -27,9 +27,9 @@ jobs:
           path: |
             .cache/zig
             .cache/pacman
-          key: ghostty-build-${{ runner.os }}-${{ hashFiles('.github/workflows/build.yml') }}-${{ github.run_id }}
+          key: ghostty-build-${{ runner.os }}-${{ hashFiles('scripts/build.sh') }}-${{ github.run_id }}
           restore-keys: |
-            ghostty-build-${{ runner.os }}-${{ hashFiles('.github/workflows/build.yml') }}-
+            ghostty-build-${{ runner.os }}-${{ hashFiles('scripts/build.sh') }}-
             ghostty-build-${{ runner.os }}-
 
       - name: Get previous release commit
@@ -43,111 +43,14 @@ jobs:
       - name: Build Ghostty & Generate Pacman Repo in Arch container
         run: |
           chmod -R 777 dist .cache
-
           docker run --rm \
             -e GITHUB_REPOSITORY="${{ github.repository }}" \
             -e PREV_SHA="${{ steps.prev_release.outputs.prev_sha }}" \
+            -v "$PWD:/workspace" \
             -v "$PWD/dist:/dist" \
             -v "$PWD/.cache/zig:/home/builder/.cache/zig" \
             -v "$PWD/.cache/pacman:/var/cache/pacman/pkg" \
-            archlinux:base-devel bash -c '
-              set -euo pipefail
-
-              # Update keyring and install prerequisites
-              pacman -Sy --noconfirm archlinux-keyring
-              pacman -Su --noconfirm --needed git sudo pacman
-
-              # Setup unprivileged user for makepkg
-              useradd -m -s /bin/bash builder
-              echo "builder ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/builder
-              chmod 0440 /etc/sudoers.d/builder
-              mkdir -p /home/builder/.cache/zig
-              chown -R builder:builder /home/builder/.cache
-
-              # Build packages and generate pacman database
-              su builder -c "
-                export ZIG_GLOBAL_CACHE_DIR=/home/builder/.cache/zig
-
-                git clone https://aur.archlinux.org/ghostty-git.git /tmp/ghostty-git
-                cd /tmp/ghostty-git
-
-                # Target modern x86-64-v3 microarchitecture (AVX2, BMI2, FMA)
-                sed -i \"s/-Dcpu=baseline/-Dcpu=x86-64-v3/\" PKGBUILD
-
-                # Allow zig to fetch missing transitive dependencies online
-                sed -i \"/--system/d\" PKGBUILD
-
-                # Persist downloaded package tarballs into the global cache
-                sed -i \"s|ZIG_GLOBAL_CACHE_DIR=.*fetch-zig-cache.sh|./nix/build-support/fetch-zig-cache.sh|\" PKGBUILD
-
-                makepkg -s --noconfirm
-                cp *.pkg.tar.zst /dist/
-                cd /dist
-                repo-add ghostty.db.tar.gz *.pkg.tar.zst
-                # Ensure db and files are physical files, not symlinks
-                rm -f ghostty.db ghostty.files
-                cp -a ghostty.db.tar.gz ghostty.db
-                cp -a ghostty.files.tar.gz ghostty.files
-
-                # Generate release notes
-                cd /tmp/ghostty-git
-                UPSTREAM_COMMIT=\$(git -C src/ghostty rev-parse HEAD 2>/dev/null || echo \"unknown\")
-                UPSTREAM_SHORT=\$(git -C src/ghostty rev-parse --short HEAD 2>/dev/null || echo \"unknown\")
-                UPSTREAM_MSG=\$(git -C src/ghostty log -1 --pretty=%s 2>/dev/null || echo \"\")
-                UPSTREAM_DATE=\$(git -C src/ghostty log -1 --pretty=%ci 2>/dev/null || echo \"\")
-                PKG_VER=\$(ls ghostty-git-*.pkg.tar.zst | head -n1 | sed -E \"s/ghostty-git-(.*)-x86_64\.pkg\.tar\.zst/\1/\")
-                BUILD_DATE=\$(date -u \"+%Y-%m-%d %H:%M UTC\")
-
-                echo \"Ghostty Git \${PKG_VER} (x86-64-v3)\" > /dist/release_title.txt
-
-                # Compare changes link
-                if [ -n \"\${PREV_SHA:-}\" ] && [ \"\${PREV_SHA}\" != \"\${UPSTREAM_COMMIT}\" ]; then
-                  COMPARE_LINE=\"* **Changes:** [View commits since previous build](https://github.com/ghostty-org/ghostty/compare/\${PREV_SHA}...\${UPSTREAM_COMMIT})\"
-                else
-                  COMPARE_LINE=\"* **Changes:** Initial build or commit unchanged\"
-                fi
-
-                cat << EOF > /dist/release_notes.md
-## Ghostty Git (\`\${PKG_VER}\`)
-
-Automated pacman repository tracking \`ghostty-org/ghostty:main\`.
-
-### 📌 Upstream Source
-* **Commit:** [\`\${UPSTREAM_SHORT}\`](https://github.com/ghostty-org/ghostty/commit/\${UPSTREAM_COMMIT})
-* **Message:** *\${UPSTREAM_MSG}*
-\${COMPARE_LINE}
-* **Arch Target:** \`x86-64-v3\` (AVX2, BMI2, FMA)
-* **Build Time:** \${BUILD_DATE}
-
-### 📦 Pacman Configuration
-
-Tambahkan ke \`/etc/pacman.conf\`:
-
-\`\`\`ini
-[ghostty]
-SigLevel = Optional TrustAll
-Server = https://github.com/\${GITHUB_REPOSITORY}/releases/download/repo
-\`\`\`
-
-Sinkronkan dan pasang:
-\`\`\`bash
-sudo pacman -Sy ghostty-git
-\`\`\`
-
-### 📦 Artifacts & Packages
-* \`ghostty-git\` — Main terminal emulator binary
-* \`ghostty-terminfo-git\` — Ghostty terminfo definitions
-* \`ghostty-shell-integration-git\` — Shell integration scripts (bash, zsh, fish)
-* \`ghostty-nautilus-git\` — Open in Ghostty plugin for GNOME Files (Nautilus)
-* \`ghostty-git-debug\` — Debug symbols
-
-### 🔐 SHA256 Checksums
-\`\`\`text
-\$(cd /dist && sha256sum *.pkg.tar.zst)
-\`\`\`
-EOF
-              "
-            '
+            archlinux:base-devel bash /workspace/scripts/build.sh
 
       - name: Upload Package Artifacts
         uses: actions/upload-artifact@v4
@@ -162,7 +65,11 @@ EOF
         run: |
           RELEASE_TITLE=$(cat dist/release_title.txt 2>/dev/null || echo "Ghostty Pacman Repository")
 
+          # Check if release 'repo' already exists
           if ! gh release view repo --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # Delete stale tag if left behind without a release
+            git push origin :refs/tags/repo >/dev/null 2>&1 || true
+
             gh release create repo dist/*.pkg.tar.zst dist/ghostty.db dist/ghostty.db.tar.gz dist/ghostty.files dist/ghostty.files.tar.gz \
               --repo "$GITHUB_REPOSITORY" \
               --title "$RELEASE_TITLE" \
