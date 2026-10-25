@@ -74,7 +74,7 @@ package_ghostty-git() {
     depends+=("${_pkgbase}-shell-integration-git" "${_pkgbase}-terminfo-git")
     provides=("${pkgname%-git}=$pkgver")
     conflicts=(${pkgname%-git})
-    optdepends+=("ghostty-nautilus: Open in Ghostty context menu in GNOME Files")
+    optdepends+=("${_pkgbase}-nautilus-git: Open in Ghostty context menu in GNOME Files")
     cd "$_pkgbase"
     cp -a build/* "$pkgdir/"
     install -Dm0644 -t "${pkgdir}/usr/share/licenses/$pkgname/" LICENSE
@@ -107,7 +107,7 @@ package_ghostty-terminfo-git() {
 
 package_ghostty-nautilus-git() {
     pkgdesc='Open in Ghostty for GNOME Files'
-    depends=(ghostty nautilus-python)
+    depends=("${_pkgbase}-git" nautilus-python)
     provides=("${pkgname%-git}=$pkgver")
     conflicts=(${pkgname%-git})
     license=(GPL-2.0-or-later)
