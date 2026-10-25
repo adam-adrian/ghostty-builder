@@ -62,7 +62,7 @@ build() {
         --summary all \
         --prefix "/usr" \
         -Doptimize=ReleaseFast \
-        -Dcpu=x86-64-v3 \
+        -Dcpu=x86_64_v3 \
         -Dgtk-x11=true \
         -Dpie=true \
         -Demit-docs \
