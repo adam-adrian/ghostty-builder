@@ -27,9 +27,9 @@ jobs:
           path: |
             .cache/zig
             .cache/pacman
-          key: ghostty-build-${{ runner.os }}-${{ hashFiles('scripts/build.sh') }}-${{ github.run_id }}
+          key: ghostty-build-${{ runner.os }}-${{ hashFiles('PKGBUILD', 'scripts/build.sh') }}-${{ github.run_id }}
           restore-keys: |
-            ghostty-build-${{ runner.os }}-${{ hashFiles('scripts/build.sh') }}-
+            ghostty-build-${{ runner.os }}-${{ hashFiles('PKGBUILD', 'scripts/build.sh') }}-
             ghostty-build-${{ runner.os }}-
 
       - name: Get previous release commit

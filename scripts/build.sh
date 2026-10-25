@@ -15,24 +15,17 @@ fi
 mkdir -p /home/builder/.cache/zig
 chown -R builder:builder /home/builder/.cache
 
+# Copy repository PKGBUILD and patches to a clean builder workdir
+rm -rf /tmp/build && mkdir -p /tmp/build
+cp /workspace/PKGBUILD /workspace/ghostty-llvm.patch /tmp/build/
+chown -R builder:builder /tmp/build
+
 # 3. Build Ghostty as builder user
 su builder -c '
   set -euo pipefail
   export ZIG_GLOBAL_CACHE_DIR=/home/builder/.cache/zig
 
-  rm -rf /tmp/ghostty-git
-  git clone https://aur.archlinux.org/ghostty-git.git /tmp/ghostty-git
-  cd /tmp/ghostty-git
-
-  # Optimize for modern x86-64-v3 microarchitecture (AVX2, BMI2, FMA)
-  sed -i "s/-Dcpu=baseline/-Dcpu=x86-64-v3/" PKGBUILD
-
-  # Allow zig to fetch missing transitive dependencies online
-  sed -i "/--system/d" PKGBUILD
-
-  # Persist downloaded package tarballs into the global cache
-  sed -i "s|ZIG_GLOBAL_CACHE_DIR=.*fetch-zig-cache.sh|./nix/build-support/fetch-zig-cache.sh|" PKGBUILD
-
+  cd /tmp/build
   makepkg -s --noconfirm
   cp *.pkg.tar.zst /dist/
 
@@ -46,12 +39,12 @@ su builder -c '
   cp -a ghostty.files.tar.gz ghostty.files
 
   # Extract upstream build metadata
-  cd /tmp/ghostty-git
-  UPSTREAM_COMMIT=$(git -C src/ghostty rev-parse HEAD 2>/dev/null || echo "unknown")
-  UPSTREAM_SHORT=$(git -C src/ghostty rev-parse --short HEAD 2>/dev/null || echo "unknown")
-  UPSTREAM_MSG=$(git -C src/ghostty log -1 --pretty=%s 2>/dev/null || echo "")
-  UPSTREAM_DATE=$(git -C src/ghostty log -1 --pretty=%ci 2>/dev/null || echo "")
-  PKG_VER=$(ls ghostty-git-*.pkg.tar.zst | head -n1 | sed -E "s/ghostty-git-(.*)-x86_64\.pkg\.tar\.zst/\1/")
+  cd /tmp/build/src/ghostty
+  UPSTREAM_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+  UPSTREAM_SHORT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+  UPSTREAM_MSG=$(git log -1 --pretty=%s 2>/dev/null || echo "")
+  UPSTREAM_DATE=$(git log -1 --pretty=%ci 2>/dev/null || echo "")
+  PKG_VER=$(ls /dist/ghostty-git-*.pkg.tar.zst | head -n1 | sed -E "s/.*ghostty-git-(.*)-x86_64\.pkg\.tar\.zst/\1/")
   BUILD_DATE=$(date -u "+%Y-%m-%d %H:%M UTC")
 
   echo "Ghostty Git ${PKG_VER} (x86-64-v3)" > /dist/release_title.txt
