@@ -2,15 +2,12 @@ name: Build Ghostty
 
 on:
   workflow_dispatch:
-    inputs:
-      create_release:
-        description: 'Publish as GitHub Release'
-        type: boolean
-        default: false
+  schedule:
+    - cron: '0 4 * * 1' # Opsional: auto-check tiap Senin jam 04:00 UTC
 
 jobs:
   build:
-    name: Build Arch Package
+    name: Build & Publish Pacman Repo
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -19,7 +16,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Build Ghostty in Arch Linux container
+      - name: Build Ghostty & Generate Pacman Repo in Arch container
         run: |
           mkdir -p dist
           chmod 777 dist
@@ -31,19 +28,24 @@ jobs:
 
               # Update keyring and install prerequisites
               pacman -Sy --noconfirm archlinux-keyring
-              pacman -Su --noconfirm --needed git sudo
+              pacman -Su --noconfirm --needed git sudo pacman
 
               # Setup unprivileged user for makepkg
               useradd -m -s /bin/bash builder
               echo "builder ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/builder
               chmod 0440 /etc/sudoers.d/builder
 
-              # Clone AUR package and build
+              # Build packages and generate pacman database
               su builder -c "
                 git clone https://aur.archlinux.org/ghostty-git.git /tmp/ghostty-git
                 cd /tmp/ghostty-git
                 makepkg -s --noconfirm
                 cp *.pkg.tar.zst /dist/
+                cd /dist
+                repo-add ghostty.db.tar.gz *.pkg.tar.zst
+                # Ensure db and files are physical files, not symlinks
+                cp -f ghostty.db.tar.gz ghostty.db
+                cp -f ghostty.files.tar.gz ghostty.files
               "
             '
 
@@ -51,13 +53,31 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ghostty-packages
-          path: dist/*.pkg.tar.zst
-          retention-days: 14
+          path: dist/*
+          retention-days: 7
 
-      - name: Create Release
-        if: ${{ inputs.create_release }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: tip-${{ github.run_id }}
-          name: "Ghostty Nightly (Build ${{ github.run_id }})"
-          files: dist/*.pkg.tar.zst
+      - name: Publish to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view repo --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create repo dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Ghostty Pacman Repository" \
+              --notes "Automated Pacman repository tracking ghostty-org/ghostty main."
+          else
+            gh release upload repo dist/* --clobber --repo "$GITHUB_REPOSITORY"
+
+            # Prune obsolete assets not present in current build
+            current_files=$(cd dist && ls -1)
+            assets=$(gh release view repo --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+            for asset in $assets; do
+              case "$current_files" in
+                *"$asset"*) ;;
+                *)
+                  echo "Pruning old asset: $asset"
+                  gh release delete-asset repo "$asset" --repo "$GITHUB_REPOSITORY" --yes || true
+                  ;;
+              esac
+            done
+          fi
