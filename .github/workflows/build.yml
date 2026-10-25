@@ -48,8 +48,9 @@ jobs:
                 cd /dist
                 repo-add ghostty.db.tar.gz *.pkg.tar.zst
                 # Ensure db and files are physical files, not symlinks
-                cp -f ghostty.db.tar.gz ghostty.db
-                cp -f ghostty.files.tar.gz ghostty.files
+                rm -f ghostty.db ghostty.files
+                cp -a ghostty.db.tar.gz ghostty.db
+                cp -a ghostty.files.tar.gz ghostty.files
               "
             '
 
